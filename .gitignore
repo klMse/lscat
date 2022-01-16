@@ -1,6 +1,9 @@
 # VSCode
 .vscode
 
+# IntelliJ
+.idea
+
 # Regular c
 *.o
 

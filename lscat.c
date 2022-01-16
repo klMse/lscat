@@ -1,4 +1,5 @@
 #include "constants.h"
+#include "logging.h"
 #include <errno.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -6,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <wordexp.h>
 #include <unistd.h>
 
@@ -24,36 +26,77 @@ static struct {
     .multiple_calls = false
 };
 
-void log_perror(int err, char *msg, ...) {
-    size_t msg_len = strlen(msg);
-    char *buf = malloc(msg_len * 2);
-    va_list ap;
-    va_start(ap, msg);
-    vsnprintf(buf, msg_len * 2, msg, ap);
-    va_end(ap);
-    if (err) {
-        char *string_error = strerror(err);
-        fprintf(stderr, "[Error]: %s: %s\n", buf, string_error);
-    } else {
-        fprintf(stderr, "[Error]: %s\n", msg);
+
+char **string_to_argv(const char * const p_string) {
+    char *str = strdup(p_string);
+    // Trim first
+    size_t index = strlen(str) - 1;
+    while (*(str + index) == ' ') {
+        *(str + index) = '\0';
+        --index;
     }
-    free(msg);
-}
 
-void log_error(char *msg, ...) {
-    va_list ap;
-    va_start(ap, msg);
-    log_perror(0, msg, ap);
-    va_end(ap);
-}
+    size_t spaces_count = 0;
+    char *ptr = str;
 
-char **string_to_args(char *str) {
+    while (*ptr != '\0') {
+        if (*ptr == ' ') {
+            ++spaces_count;
+            while (*(ptr + 1) == ' ') {
+                ++ptr;
+            }
+        }
+        ++ptr;
+    }
 
-    return NULL;
+    char **ret = calloc(spaces_count + 2, sizeof(char*));
+    if (ret == NULL) {
+        log_error("malloc failed");
+        exit(-1);
+    }
+    ret[spaces_count + 1] = NULL;
+
+    char *ptr_prev = str;
+    ptr = str;
+    index = 0;
+
+    while (*ptr != '\0') {
+        if (*ptr == ' ') {
+            ret[index] = strndup(ptr_prev, ptr - ptr_prev);
+            while(*(ptr + 1) == ' ') {
+                ++ptr;
+            }
+            ptr_prev = ptr + 1;
+            ++index;
+        }
+        ++ptr;
+    }
+    // Copy last one in
+    ret[index] = strndup(ptr_prev, ptr - ptr_prev);
+
+    return ret;
 }
 
 int parse_option(char *option_str) {
+    char *ptr = option_str;
+    while (*ptr != '\0' && *ptr++ != '=') { }
+    const size_t key_length = ptr - option_str;
+    // For now it's this
+    if (strncmp("IF_FILE_EXEC", option_str, key_length) == 0) {
 
+    } else if (strncmp("IF_DIR_EXEC", option_str, key_length) == 0) {
+    
+    } else if (strncmp("IF_FILE_ARGS", option_str, key_length) == 0) {
+
+    } else if (strncmp("IF_DIR_ARGS", option_str, key_length) == 0) {
+
+    } else if (strncmp("SINGLE_CALL", option_str, key_length) == 0) {
+
+    } else {
+        char *key = strndup(option_str, key_length);
+        log_info("Key \"%s\" in config unkown", key);
+        free(key);
+    }
     return 0;
 }
 
@@ -97,10 +140,12 @@ int parse_config(char *config_path) {
     size_t line_length = 0;
     ssize_t read;
     while ((read = getline(&line, &line_length, fp)) > 0) {
-        if (line[read - 1] == '\n')
-            line[--read] = '\0';
-        if (line[0] == '\0' || line[0] == '#')
+        if (line[read - 1] == '\n') {
+            line[read - 1] = '\0';
+        }
+        if (line[0] == '\0' || line[0] == '#') {
             continue;
+        }
         parse_option(line);
     }
 
@@ -108,4 +153,16 @@ int parse_config(char *config_path) {
         free(line);
     fclose(fp);
     return 0;
+}
+
+int run_child(void *ptr) {
+    
+}
+
+int run(char *child_argv[]) {
+
+}
+
+int main(int argc, char *argv[]) {
+
 }

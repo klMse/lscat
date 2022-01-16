@@ -6,7 +6,7 @@ all: lscat
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $^
 
-lscat: lscat.o
+lscat: logging.o lscat.o
 	$(CC) $(CFLAGS) -o $@ $^
 
 clean:
