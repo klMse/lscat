@@ -1,0 +1,8 @@
+# VSCode
+.vscode
+
+# Regular c
+*.o
+
+# Executable
+lscat
