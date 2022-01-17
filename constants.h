@@ -3,7 +3,8 @@
 
 #define VERSION 1.0.1
 
-#define DEFAULT_FILE_EXEC "cat"
-#define DEFAULT_DIR_EXEC "ls"
+#define DEFAULT_FILE_EXEC "/usr/bin/cat"
+#define DEFAULT_DIR_EXEC "/usr/bin/ls"
+#define STACKSIZE 8388608
 
 #endif /* _INFO_H */
