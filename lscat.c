@@ -1,7 +1,6 @@
 #define _GNU_SOURCE
 #include "constants.h"
 #include "logging.h"
-#include "utils.h"
 #include <errno.h>
 #include <sched.h>
 #include <stdarg.h>
@@ -36,6 +35,56 @@ typedef struct {
     enum exec_types type;
 } arg_t;
 static arg_t *entries;
+
+char **string_to_argv(const char * const p_string) {
+    char *str = strdup(p_string);
+    // Trim first
+    size_t index = strlen(str) - 1;
+    while (*(str + index) == ' ') {
+        *(str + index) = '\0';
+        --index;
+    }
+
+    size_t spaces_count = 0;
+    char *ptr = str;
+
+    while (*ptr != '\0') {
+        if (*ptr == ' ') {
+            ++spaces_count;
+            while (*(ptr + 1) == ' ') {
+                ++ptr;
+            }
+        }
+        ++ptr;
+    }
+
+    char **ret = calloc(spaces_count + 2, sizeof(char*));
+    if (ret == NULL) {
+        log_error("malloc failed");
+        exit(-1);
+    }
+    ret[spaces_count + 1] = NULL;
+
+    char *ptr_prev = str;
+    ptr = str;
+    index = 0;
+
+    while (*ptr != '\0') {
+        if (*ptr == ' ') {
+            ret[index] = strndup(ptr_prev, ptr - ptr_prev);
+            while(*(ptr + 1) == ' ') {
+                ++ptr;
+            }
+            ptr_prev = ptr + 1;
+            ++index;
+        }
+        ++ptr;
+    }
+    // Copy last one in
+    ret[index] = strndup(ptr_prev, ptr - ptr_prev);
+    free(str);
+    return ret;
+}
 
 void parse_option(char *option_str) {
     char *ptr = option_str;
@@ -167,7 +216,7 @@ void convert_argv(int argc, char **argv) {
 
 int run_child(void* ptr) {
     char **argv = ptr;
-    int retval = execv(argv[0], argv);
+    int retval = execvp(argv[0], argv);
     if (retval < 0) {
         log_perror(errno, "execve failed");
     }
@@ -182,7 +231,7 @@ void run(char *child_argv[]) {
         log_perror(errno, "mmap failed");
         exit(-1);
     }
-    pid = clone(run_child, stack + STACKSIZE, SIGCHLD, child_argv);
+    pid = clone(run_child, (char*) stack + STACKSIZE, SIGCHLD, child_argv);
     if (pid < 0) {
         log_perror(errno, "clone failed");
         exit(-1);
@@ -248,7 +297,6 @@ void execute_entries() {
         }
 
         char **child_argv_dir, **child_argv_file;
-        arg_ptr = entries;
 
         if (dir_counter) {
             child_argv_dir = calloc(dir_counter + dir_exec_args_length + 2, sizeof(char*));
@@ -257,6 +305,7 @@ void execute_entries() {
             if (dir_exec_args_length) {
                 memcpy(child_argv_dir + 1, config.dir_exec_args, sizeof(char*) * dir_exec_args_length);
             }
+            arg_ptr = entries;
             while (arg_ptr->type != T_NULL) {
                 if (arg_ptr->type == T_DIR) {
                     child_argv_dir[dir_exec_args_length + dir_index + 1] = arg_ptr->path;
@@ -274,6 +323,7 @@ void execute_entries() {
             if (file_exec_args_length) {
                 memcpy(child_argv_file + 1, config.file_exec_args, sizeof(char*) * file_exec_args_length);
             }
+            arg_ptr = entries;
             while (arg_ptr->type != T_NULL) {
                 if (arg_ptr->type == T_FILE) {
                     child_argv_file[file_exec_args_length + file_index + 1] = arg_ptr->path;

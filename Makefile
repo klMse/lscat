@@ -1,12 +1,12 @@
 CC=gcc
-CFLAGS=-Wall -Wextra #-Wpedantic -Werror
+CFLAGS=-Wall -Wextra -Wpedantic -Werror
 
 all: lscat
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $^
 
-lscat: logging.o utils.o lscat.o
+lscat: logging.o lscat.o
 	$(CC) $(CFLAGS) -o $@ $^
 
 clean:

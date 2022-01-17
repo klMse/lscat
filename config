@@ -1,0 +1,16 @@
+# Example config for lscat
+
+## Command to run when encountering a file
+# FILE_EXEC=cat
+
+## Arguments to pass the command above
+# FILE_ARGS=-n
+
+## Command to run when encountering a directory
+# DIR_EXEC=ls
+
+## Arguments to pass the command above
+# DIR_ARGS=--color=tty
+
+## Should all files/directories be passed to one call of the right command or should only one be passed at a time
+# MULTIPLE_CALLS=false
