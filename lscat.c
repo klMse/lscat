@@ -15,11 +15,15 @@
 #include <wordexp.h>
 
 // clang-format off
+enum exec_types { T_FILE, T_DIR, T_ARG, T_NULL };
+
 static struct {
     char *file_exec_path;
     char **file_exec_args;
     char *dir_exec_path;
     char **dir_exec_args;
+    enum exec_types invoked_as;
+    enum exec_types mode;
     bool multiple_calls;
 } config = {
     .file_exec_path = NULL,
@@ -29,12 +33,17 @@ static struct {
     .multiple_calls = false
 };
 
-enum exec_types { T_FILE, T_DIR, T_NULL };
 typedef struct {
-    char *path;
+    char *string;
     enum exec_types type;
 } arg_t;
-static arg_t *entries;
+
+static struct {
+    arg_t *array;
+    size_t file_counter;
+    size_t dir_counter;
+    size_t arg_counter;
+} entries;
 
 char **string_to_argv(const char * const p_string) {
     char *str = strdup(p_string);
@@ -104,14 +113,6 @@ void parse_option(char *option_str) {
         config.file_exec_args = string_to_argv(value);
     } else if (strncmp("DIR_ARGS", option_str, key_length) == 0) {
         config.dir_exec_args = string_to_argv(value);
-    } else if (strncmp("MULTIPLE_CALLS", option_str, key_length) == 0) {
-        if (strcmp(value, "true") == 0) {
-            config.multiple_calls = true;
-        } else if (strcmp(value, "false") == 0) {
-            config.multiple_calls = false;
-        } else {
-            log_info("Value \"%s\" of key \"MULTIPLE_CALL\" is unkown", value);
-        }
     } else {
         char *key = strndup(option_str, key_length);
         log_info("Key \"%s\" in config unkown", key);
@@ -171,7 +172,7 @@ void parse_config(const char* const config_path) {
     return;
 }
 
-void sanitize_config() {
+void sanitize_and_check_config() {
     if (!config.file_exec_path) {
         config.file_exec_path = DEFAULT_FILE_EXEC;
     }
@@ -180,11 +181,28 @@ void sanitize_config() {
     }
     if (!config.file_exec_args) {
         config.file_exec_args = malloc(sizeof(char*));
-        config.file_exec_args = NULL;
+        *config.file_exec_args = NULL;
     }
     if (!config.dir_exec_args) {
         config.dir_exec_args = malloc(sizeof(char*));
-        config.dir_exec_args = NULL;
+        *config.dir_exec_args = NULL;
+    }
+    if (config.invoked_as == T_NULL && entries.arg_counter) {
+        log_error("You passed arguments, but called the generic lscat. This makes no sense\nExiting...\n");
+        exit(EXIT_FAILURE);
+    }
+    if (config.invoked_as == T_DIR && entries.file_counter && entries.arg_counter) {
+        log_error("You calle the dir variant of lscat, provided arguments, but passed files. What am I supposed to do with that\nExiting...\n");
+        exit(EXIT_FAILURE);
+    }
+    if (config.invoked_as == T_FILE && entries.dir_counter && entries.arg_counter) {
+        log_error("You calle the file variant of lscat, provided arguments, but passed directories. What am I supposed to do with that\nExiting...\n");
+        exit(EXIT_FAILURE);
+    }
+    if ((config.invoked_as == T_FILE || config.invoked_as == T_DIR) && !entries.arg_counter) {
+        config.mode = T_NULL;
+    } else {
+        config.mode = config.invoked_as;
     }
 }
 
@@ -193,6 +211,14 @@ void convert_argv(int argc, char **argv) {
     size_t index = 0;
     struct stat buf;
     for (size_t i = 0; i < (size_t) argc; ++i) {
+        if (*argv[i] == '-') {
+            entries.array[index].type = T_ARG;
+            entries.array[index].string = strdup(argv[i]);
+            ++entries.arg_counter;
+            ++index;
+            continue;
+        }
+
         retval = stat(argv[i], &buf);
         if (retval < 0) {
             if (errno == ENOENT) {
@@ -202,23 +228,26 @@ void convert_argv(int argc, char **argv) {
             }
             continue;
         }
-        entries[index].path = strdup(argv[i]);
+
+        entries.array[index].string = strdup(argv[i]);
         if (S_ISDIR(buf.st_mode)) {
-            entries[index].type = T_DIR;
+            entries.array[index].type = T_DIR;
+            ++entries.dir_counter;
         } else {
-            entries[index].type = T_FILE;
+            entries.array[index].type = T_FILE;
+            ++entries.file_counter;
         }
         ++index;
     }
-    entries[index].path = NULL;
-    entries[index].type = T_NULL;
+    entries.array[index].string = NULL;
+    entries.array[index].type = T_NULL;
 }
 
 int run_child(void* ptr) {
     char **argv = ptr;
     int retval = execvp(argv[0], argv);
     if (retval < 0) {
-        log_perror(errno, "execve failed");
+        log_perror(errno, "execvp failed");
     }
     // Only reached in case of an error
     return -1;
@@ -244,114 +273,107 @@ void run(char *child_argv[]) {
     }
 }
 
+void determine_call_type(char *prog_name) {
+    size_t prog_name_length = strlen(prog_name);
+    size_t suffix_len;
+    if ((suffix_len = strlen(EXEC_DIR_NAME)) <= prog_name_length) {
+        if (strncmp(prog_name + prog_name_length - suffix_len, EXEC_DIR_NAME, suffix_len) == 0) {
+            config.invoked_as = T_DIR;
+            return;
+        }
+    }
+    if ((suffix_len = strlen(EXEC_FILE_NAME)) <= prog_name_length) {
+        if (strncmp(prog_name + prog_name_length - suffix_len, EXEC_FILE_NAME, suffix_len) == 0) {
+            config.invoked_as = T_FILE;
+            return;
+        }
+    }
+    config.invoked_as = T_NULL;
+}
+
+// Takes NULL terminated char** arrays and concatenates them
+char** _concatenate_argv(char *prog_name, size_t count, ...) {
+    char ***array = calloc(count, sizeof(char***));
+    char **ptr;
+    size_t element_count = 0;
+    va_list ap;
+    va_start(ap, count);
+    for (size_t i = 0; i < count; ++i) {
+        ptr = va_arg(ap, char**);
+        array[i] = ptr;
+        while (ptr && *ptr++) {
+            ++element_count;
+        }
+    }
+    va_end(ap);
+    char **ret = calloc(element_count + 2, sizeof(char**));
+    size_t index = 1;
+    ret[0] = prog_name;
+    for (size_t i = 0; i < count; ++i)  {
+        ptr = array[i];
+        while (ptr && *ptr) {
+            ret[index++] = *ptr++;
+        }
+    }
+    ret[index] = NULL;
+    free(array);
+    return ret;
+}
+#define _GET_COUNT(a01, a02, a03, a04, a05, a06, a07, a08, a09, a10, a11, a12, ...) a12
+#define concatenate_argv(prog_name, ...) _concatenate_argv(prog_name, _GET_COUNT(dummy, ##__VA_ARGS__, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0), ##__VA_ARGS__)
+
 void execute_entries() {
-    size_t file_exec_args_length = 0, dir_exec_args_length = 0;
+    char **child_argv;
+    char **entries_array;
+    size_t array_size;
+    switch (config.mode) {
+    case T_NULL:
 
-    char **ptr = config.file_exec_args;
-    while (ptr && *ptr++) {
-        ++file_exec_args_length;
-    }
-    ptr = config.dir_exec_args;
-    while (ptr && *ptr++) {
-        ++dir_exec_args_length;
-    }
-
-    if (config.multiple_calls) {
-        char **child_argv_file = calloc(file_exec_args_length + 3, sizeof(char*));
-        char **child_argv_dir = calloc(dir_exec_args_length + 3, sizeof(char*));
-        child_argv_file[0] = config.file_exec_path;
-        child_argv_dir[0] = config.dir_exec_path;
-        child_argv_file[file_exec_args_length + 2] = NULL;
-        child_argv_dir[dir_exec_args_length + 2] = NULL;
-        if (file_exec_args_length) {
-            memcpy(child_argv_file + 1, config.file_exec_args, sizeof(char*) * file_exec_args_length);
+        break;
+    case T_FILE:
+        array_size = entries.file_counter + entries.arg_counter;
+        entries_array = calloc(array_size + 1, sizeof(char**));
+        entries_array[array_size] = NULL;
+        for (size_t i = 0; i < array_size; ++i) {
+            entries_array[i] = entries.array[i].string;
         }
-        if (dir_exec_args_length) {
-            memcpy(child_argv_dir + 1, config.dir_exec_args, sizeof(char*) * dir_exec_args_length);
+        child_argv = concatenate_argv(config.file_exec_path, config.file_exec_args, entries_array);
+        run(child_argv);
+        break;
+    case T_DIR:
+        array_size = entries.dir_counter + entries.arg_counter;
+        entries_array = calloc(array_size + 1, sizeof(char**));
+        entries_array[array_size] = NULL;
+        for (size_t i = 0; i < array_size; ++i) {
+            entries_array[i] = entries.array[i].string;
         }
-        arg_t *arg_ptr = entries;
-
-        while (arg_ptr->type != T_NULL) {
-            if (arg_ptr->type == T_DIR) {
-                child_argv_dir[dir_exec_args_length + 1] = arg_ptr->path;
-                run(child_argv_dir);
-            } else if (arg_ptr->type == T_FILE) {
-                child_argv_file[file_exec_args_length + 1] = arg_ptr->path;
-                run(child_argv_file);
-            }
-            ++arg_ptr;
-        }
-        free(child_argv_dir);
-        free(child_argv_file);
-    } else {
-        size_t file_index = 0, dir_index = 0;
-        size_t file_counter = 0, dir_counter = 0;
-        arg_t *arg_ptr = entries;
-        while (arg_ptr->type != T_NULL) {
-            if (arg_ptr->type == T_FILE) {
-                ++file_counter;
-            } else if (arg_ptr->type == T_DIR) {
-                ++dir_counter;
-            }
-            ++arg_ptr;
-        }
-
-        char **child_argv_dir, **child_argv_file;
-
-        if (dir_counter) {
-            child_argv_dir = calloc(dir_counter + dir_exec_args_length + 2, sizeof(char*));
-            child_argv_dir[0] = config.dir_exec_path;
-            child_argv_dir[dir_exec_args_length + dir_counter + 1] = NULL;
-            if (dir_exec_args_length) {
-                memcpy(child_argv_dir + 1, config.dir_exec_args, sizeof(char*) * dir_exec_args_length);
-            }
-            arg_ptr = entries;
-            while (arg_ptr->type != T_NULL) {
-                if (arg_ptr->type == T_DIR) {
-                    child_argv_dir[dir_exec_args_length + dir_index + 1] = arg_ptr->path;
-                    ++dir_index;
-                }
-                ++arg_ptr;
-            }
-            run(child_argv_dir);
-            free(child_argv_dir);
-        }
-        if (file_counter) {
-            child_argv_file = calloc(file_counter + file_exec_args_length + 2, sizeof(char*));
-            child_argv_file[0] = config.file_exec_path;
-            child_argv_file[file_exec_args_length + file_counter + 1] = NULL;
-            if (file_exec_args_length) {
-                memcpy(child_argv_file + 1, config.file_exec_args, sizeof(char*) * file_exec_args_length);
-            }
-            arg_ptr = entries;
-            while (arg_ptr->type != T_NULL) {
-                if (arg_ptr->type == T_FILE) {
-                    child_argv_file[file_exec_args_length + file_index + 1] = arg_ptr->path;
-                    ++file_index;
-                }
-                ++arg_ptr;
-            }
-            run(child_argv_file);
-            free(child_argv_file);
-        }
+        child_argv = concatenate_argv(config.dir_exec_path, config.dir_exec_args, entries_array);
+        run(child_argv);
+        break; 
+    default:
+        break;
     }
 }
 
 int main(int argc, char *argv[]) {
+    determine_call_type(argv[0]);
+
     if (argc < 2) {
-        entries = calloc(2, sizeof(arg_t));
-        entries[0].path = ".";
-        entries[0].type = T_DIR;
-        entries[1].path = NULL;
-        entries[1].type = T_NULL;
+        entries.array = calloc(2, sizeof(arg_t));
+        entries.array[0].string = ".";
+        entries.array[0].type = T_DIR;
+        entries.array[1].string = NULL;
+        entries.array[1].type = T_NULL;
     } else {
-        entries = calloc(argc, sizeof(arg_t));
+        entries.array = calloc(argc, sizeof(arg_t));
         convert_argv(argc - 1, argv + 1);
     }
 
     const char *config_path = get_config_path();
-    if (config_path)
+    if (config_path) {
         parse_config(config_path);
-    sanitize_config();
+    }
+    sanitize_and_check_config();
+
     execute_entries();
 }

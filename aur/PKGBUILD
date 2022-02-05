@@ -22,5 +22,7 @@ package() {
     install -d "$pkgdir/usr/bin"
     install -d "$pkgdir/usr/share/doc/lscat/example"
     install -m 755 "$pkgname" "$pkgdir/usr/bin"
+    ln -s "$pkgdir/usr/bin/$pkgname" "$pkgdir/usr/bin/${pkgname}-file"
+    ln -s "$pkgdir/usr/bin/$pkgname" "$pkgdir/usr/bin/${pkgname}-dir"
     install -m 644 config "$pkgdir/usr/share/doc/lscat/example"
 }
