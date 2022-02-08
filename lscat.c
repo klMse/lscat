@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -22,15 +23,17 @@ static struct {
     char **file_exec_args;
     char *dir_exec_path;
     char **dir_exec_args;
+    size_t stack_size;
     enum exec_types invoked_as;
     enum exec_types mode;
-    bool multiple_calls;
 } config = {
     .file_exec_path = NULL,
     .file_exec_args = NULL,
     .dir_exec_path = NULL,
     .dir_exec_args = NULL,
-    .multiple_calls = false
+    .stack_size = 0,
+    .invoked_as = T_NULL,
+    .mode = T_NULL
 };
 
 typedef struct {
@@ -132,7 +135,7 @@ char *get_config_path() {
     wordexp_t we;
     for (size_t i = 0; i < sizeof(paths) / sizeof(char*); ++i) {
         retval = wordexp(paths[i], &we, 0);
-        if (retval == 0) {
+        if (retval == 0 && we.we_wordc) {
             retval = access(we.we_wordv[0], R_OK);
             if (retval == 0) {
                 ret_path = strdup(we.we_wordv[0]);
@@ -172,6 +175,8 @@ void parse_config(const char* const config_path) {
     return;
 }
 
+// Fill in missing pieces in the config
+// Check once and for all if the user made some input that doesn't make sense
 void sanitize_and_check_config() {
     if (!config.file_exec_path) {
         config.file_exec_path = DEFAULT_FILE_EXEC;
@@ -187,40 +192,40 @@ void sanitize_and_check_config() {
         config.dir_exec_args = malloc(sizeof(char*));
         *config.dir_exec_args = NULL;
     }
-    if (config.invoked_as == T_NULL && entries.arg_counter) {
-        log_error("You passed arguments, but called the generic lscat. This makes no sense\nExiting...\n");
-        exit(EXIT_FAILURE);
-    }
-    if (config.invoked_as == T_DIR && entries.file_counter && entries.arg_counter) {
-        log_error("You calle the dir variant of lscat, provided arguments, but passed files. What am I supposed to do with that\nExiting...\n");
-        exit(EXIT_FAILURE);
-    }
-    if (config.invoked_as == T_FILE && entries.dir_counter && entries.arg_counter) {
-        log_error("You calle the file variant of lscat, provided arguments, but passed directories. What am I supposed to do with that\nExiting...\n");
-        exit(EXIT_FAILURE);
-    }
-    if ((config.invoked_as == T_FILE || config.invoked_as == T_DIR) && !entries.arg_counter) {
+
+    if (config.invoked_as == T_DIR && entries.file_counter)
         config.mode = T_NULL;
-    } else {
+    else if (config.invoked_as == T_FILE && entries.dir_counter)
+        config.mode = T_NULL;
+    else
         config.mode = config.invoked_as;
+
+    struct rlimit limit;
+    int retval = getrlimit(RLIMIT_STACK, &limit);
+    if (retval < 0 || limit.rlim_cur <= 0) {
+        log_perror(errno, "getrlimit failed, using default of %ld", STACKSIZE);
+        config.stack_size = STACKSIZE;
+    } else {
+        config.stack_size = limit.rlim_cur;
     }
 }
 
+// Turn argv into arg_t in entries
 void convert_argv(int argc, char **argv) {
     int retval;
     size_t index = 0;
     struct stat buf;
     for (size_t i = 0; i < (size_t) argc; ++i) {
-        if (*argv[i] == '-') {
-            entries.array[index].type = T_ARG;
-            entries.array[index].string = strdup(argv[i]);
-            ++entries.arg_counter;
-            ++index;
-            continue;
-        }
 
         retval = stat(argv[i], &buf);
         if (retval < 0) {
+            if (*argv[i] == '-') {
+                entries.array[index].type = T_ARG;
+                entries.array[index].string = strdup(argv[i]);
+                ++entries.arg_counter;
+                ++index;
+                continue;
+            }
             if (errno == ENOENT) {
                 log_perror(errno, "\"%s\"", argv[i]);
             } else {
@@ -254,25 +259,25 @@ int run_child(void* ptr) {
 }
 
 void run(char *child_argv[]) {
-    pid_t pid;
-    void *stack = mmap(NULL, STACKSIZE, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_STACK, -1, 0);
+    void *stack = mmap(NULL, config.stack_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_STACK, -1, 0);
     if (stack == MAP_FAILED) {
         log_perror(errno, "mmap failed");
         exit(-1);
     }
-    pid = clone(run_child, (char*) stack + STACKSIZE, SIGCHLD, child_argv);
+    pid_t pid = clone(run_child, (char*) stack + config.stack_size, SIGCHLD, child_argv);
     if (pid < 0) {
         log_perror(errno, "clone failed");
         exit(-1);
     }
     waitpid(pid, NULL, 0);
-    int retval = munmap(stack, STACKSIZE);
+    int retval = munmap(stack, config.stack_size);
     if (retval < 0) {
         log_perror(errno, "munmap failed");
         exit(-1);
     }
 }
 
+// Determines how lscat was called, generic call, lscat dir mode or lscat file mode
 void determine_call_type(char *prog_name) {
     size_t prog_name_length = strlen(prog_name);
     size_t suffix_len;
@@ -291,7 +296,7 @@ void determine_call_type(char *prog_name) {
     config.invoked_as = T_NULL;
 }
 
-// Takes NULL terminated char** arrays and concatenates them
+// Takes NULL terminated char** arrays and concatenates them, adds the progam name as first element
 char** _concatenate_argv(char *prog_name, size_t count, ...) {
     char ***array = calloc(count, sizeof(char***));
     char **ptr;
@@ -324,11 +329,40 @@ char** _concatenate_argv(char *prog_name, size_t count, ...) {
 
 void execute_entries() {
     char **child_argv;
+    arg_t *entry;
     char **entries_array;
     size_t array_size;
+    size_t index;
     switch (config.mode) {
     case T_NULL:
-
+        if (entries.dir_counter) {
+            index = 0;
+            entries_array = calloc(entries.dir_counter + 1, sizeof(char**));
+            entries_array[entries.dir_counter] = NULL;
+            entry = entries.array;
+            while (entry && entry->type != T_NULL) {
+                if (entry->type == T_DIR) {
+                    entries_array[index++] = entry->string;
+                }
+                ++entry;
+            }
+            child_argv = concatenate_argv(config.dir_exec_path, config.dir_exec_args, entries_array);
+            run(child_argv);
+        }
+        if (entries.file_counter) {
+            index = 0;
+            entries_array = calloc(entries.file_counter + 1, sizeof(char**));
+            entries_array[entries.file_counter] = NULL;
+            entry = entries.array;
+            while (entry && entry->type != T_NULL) {
+                if (entry->type == T_FILE) {
+                    entries_array[index++] = entry->string;
+                }
+                ++entry;
+            }
+            child_argv = concatenate_argv(config.file_exec_path, config.file_exec_args, entries_array);
+            run(child_argv);
+        }
         break;
     case T_FILE:
         array_size = entries.file_counter + entries.arg_counter;
@@ -339,6 +373,8 @@ void execute_entries() {
         }
         child_argv = concatenate_argv(config.file_exec_path, config.file_exec_args, entries_array);
         run(child_argv);
+        free(child_argv);
+        free(entries_array);
         break;
     case T_DIR:
         array_size = entries.dir_counter + entries.arg_counter;
@@ -349,6 +385,8 @@ void execute_entries() {
         }
         child_argv = concatenate_argv(config.dir_exec_path, config.dir_exec_args, entries_array);
         run(child_argv);
+        free(child_argv);
+        free(entries_array);
         break; 
     default:
         break;
@@ -364,6 +402,7 @@ int main(int argc, char *argv[]) {
         entries.array[0].type = T_DIR;
         entries.array[1].string = NULL;
         entries.array[1].type = T_NULL;
+        entries.dir_counter = 1;
     } else {
         entries.array = calloc(argc, sizeof(arg_t));
         convert_argv(argc - 1, argv + 1);
