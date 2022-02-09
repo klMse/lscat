@@ -5,6 +5,7 @@ pkgver=1.0.2
 pkgrel=1
 pkgdesc="Behaves like ls for directories or cat for files"
 arch=('x86_64' 'i686')
+url="https://github.com/klMse/lscat"
 license=('GPL3')
 optdepends=('coreutils')
 makedepends=('make' 'gcc' 'git')

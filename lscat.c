@@ -200,6 +200,16 @@ void sanitize_and_check_config() {
     else
         config.mode = config.invoked_as;
 
+    if (config.mode == T_NULL && entries.arg_counter) {
+        arg_t *ptr = entries.array;
+        while (ptr->type != T_NULL) {
+            if (ptr->type == T_ARG) {
+                log_info("Running in dir mode, ignoring argument \"%s\"", ptr->string);
+            }
+            ++ptr;
+        }
+    }
+
     struct rlimit limit;
     int retval = getrlimit(RLIMIT_STACK, &limit);
     if (retval < 0 || limit.rlim_cur <= 0) {
