@@ -7,8 +7,7 @@ pkgdesc="Behaves like ls for directories or cat for files"
 arch=('x86_64' 'i686')
 license=('GPL3')
 optdepends=('coreutils')
-makedepends=('make' 'gcc')
-conflicts=('lscat')
+makedepends=('make' 'gcc' 'git')
 provides=('lscat')
 source=("$pkgname"::git+https://github.com/klMse/lscat.git)
 sha256sums=('SKIP')
@@ -20,10 +19,10 @@ build() {
 
 package() {
     cd "$pkgname"
-    install -d "$pkgdir/usr/bin"
-    install -d "$pkgdir/usr/share/doc/lscat/example"
+    install -d "${pkgdir}/usr/bin"
+    install -d "${pkgdir}/usr/share/doc/lscat/example"
     install -m 755 "${_pkgname}" "${pkgdir}/usr/bin"
-    ln -s "$pkgdir/usr/bin/${_pkgname}" "$pkgdir/usr/bin/${_pkgname}-file"
-    ln -s "$pkgdir/usr/bin/${_pkgname}" "$pkgdir/usr/bin/${_pkgname}-dir"
+    ln -s "/usr/bin/${_pkgname}" "${pkgdir}/usr/bin/${_pkgname}-file"
+    ln -s "/usr/bin/${_pkgname}" "${pkgdir}/usr/bin/${_pkgname}-dir"
     install -m 644 config "${pkgdir}/usr/share/doc/lscat/example"
 }
