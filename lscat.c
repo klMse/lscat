@@ -223,10 +223,11 @@ void sanitize_and_check_config() {
 // Turn argv into arg_t in entries
 void convert_argv(int argc, char **argv) {
     int retval;
+    entries.array = calloc(argc, sizeof(arg_t));
+
     size_t index = 0;
     struct stat buf;
     for (size_t i = 0; i < (size_t) argc; ++i) {
-
         retval = stat(argv[i], &buf);
         if (retval < 0) {
             if (*argv[i] == '-') {
@@ -307,7 +308,7 @@ void determine_call_type(char *prog_name) {
 }
 
 // Takes NULL terminated char** arrays and concatenates them, adds the program name as first element
-char** _concatenate_argv(char *prog_name, size_t count, ...) {
+char** concatenate_char_arrays_impl(char *prog_name, size_t count, ...) {
     char ***array = calloc(count, sizeof(char**));
     char **ptr;
     size_t element_count = 0;
@@ -335,7 +336,7 @@ char** _concatenate_argv(char *prog_name, size_t count, ...) {
     return ret;
 }
 #define _GET_COUNT(a01, a02, a03, a04, a05, a06, a07, a08, a09, a10, a11, a12, ...) a12
-#define concatenate_argv(prog_name, ...) _concatenate_argv(prog_name, _GET_COUNT(dummy, ##__VA_ARGS__, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0), ##__VA_ARGS__)
+#define concatenate_char_arrays(prog_name, ...) concatenate_char_arrays_impl(prog_name, _GET_COUNT(dummy, ##__VA_ARGS__, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0), ##__VA_ARGS__)
 
 void execute_entries() {
     char **child_argv;
@@ -356,7 +357,7 @@ void execute_entries() {
                 }
                 ++entry;
             }
-            child_argv = concatenate_argv(config.dir_exec_path, config.dir_exec_args, entries_array);
+            child_argv = concatenate_char_arrays(config.dir_exec_path, config.dir_exec_args, entries_array);
             free(entries_array);
             run(child_argv);
             free(child_argv);
@@ -373,7 +374,7 @@ void execute_entries() {
                 }
                 ++entry;
             }
-            child_argv = concatenate_argv(config.file_exec_path, config.file_exec_args, entries_array);
+            child_argv = concatenate_char_arrays(config.file_exec_path, config.file_exec_args, entries_array);
             free(entries_array);
             run(child_argv);
             free(child_argv);
@@ -386,7 +387,7 @@ void execute_entries() {
         for (size_t i = 0; i < array_size; ++i) {
             entries_array[i] = entries.array[i].string;
         }
-        child_argv = concatenate_argv(config.file_exec_path, config.file_exec_args, entries_array);
+        child_argv = concatenate_char_arrays(config.file_exec_path, config.file_exec_args, entries_array);
         run(child_argv);
         free(child_argv);
         free(entries_array);
@@ -398,7 +399,7 @@ void execute_entries() {
         for (size_t i = 0; i < array_size; ++i) {
             entries_array[i] = entries.array[i].string;
         }
-        child_argv = concatenate_argv(config.dir_exec_path, config.dir_exec_args, entries_array);
+        child_argv = concatenate_char_arrays(config.dir_exec_path, config.dir_exec_args, entries_array);
         run(child_argv);
         free(child_argv);
         free(entries_array);
@@ -411,17 +412,7 @@ void execute_entries() {
 int main(int argc, char *argv[]) {
     determine_call_type(argv[0]);
 
-    if (argc < 2) {
-        entries.array = calloc(2, sizeof(arg_t));
-        entries.array[0].string = ".";
-        entries.array[0].type = T_DIR;
-        entries.array[1].string = NULL;
-        entries.array[1].type = T_NULL;
-        entries.dir_counter = 1;
-    } else {
-        entries.array = calloc(argc, sizeof(arg_t));
-        convert_argv(argc - 1, argv + 1);
-    }
+    convert_argv(argc - 1, argv + 1);
 
     const char *config_path = get_config_path();
     if (config_path) {
