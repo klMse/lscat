@@ -357,8 +357,11 @@ void execute_entries() {
                 ++entry;
             }
             child_argv = concatenate_argv(config.dir_exec_path, config.dir_exec_args, entries_array);
+            free(entries_array);
             run(child_argv);
+            free(child_argv);
         }
+
         if (entries.file_counter) {
             index = 0;
             entries_array = calloc(entries.file_counter + 1, sizeof(char**));
@@ -371,7 +374,9 @@ void execute_entries() {
                 ++entry;
             }
             child_argv = concatenate_argv(config.file_exec_path, config.file_exec_args, entries_array);
+            free(entries_array);
             run(child_argv);
+            free(child_argv);
         }
         break;
     case T_FILE:
