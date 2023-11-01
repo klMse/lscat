@@ -306,9 +306,9 @@ void determine_call_type(char *prog_name) {
     config.invoked_as = T_NULL;
 }
 
-// Takes NULL terminated char** arrays and concatenates them, adds the progam name as first element
+// Takes NULL terminated char** arrays and concatenates them, adds the program name as first element
 char** _concatenate_argv(char *prog_name, size_t count, ...) {
-    char ***array = calloc(count, sizeof(char***));
+    char ***array = calloc(count, sizeof(char**));
     char **ptr;
     size_t element_count = 0;
     va_list ap;
@@ -321,7 +321,7 @@ char** _concatenate_argv(char *prog_name, size_t count, ...) {
         }
     }
     va_end(ap);
-    char **ret = calloc(element_count + 2, sizeof(char**));
+    char **ret = calloc(element_count + 2, sizeof(char*));
     size_t index = 1;
     ret[0] = prog_name;
     for (size_t i = 0; i < count; ++i)  {
@@ -347,7 +347,7 @@ void execute_entries() {
     case T_NULL:
         if (entries.dir_counter) {
             index = 0;
-            entries_array = calloc(entries.dir_counter + 1, sizeof(char**));
+            entries_array = calloc(entries.dir_counter + 1, sizeof(char*));
             entries_array[entries.dir_counter] = NULL;
             entry = entries.array;
             while (entry && entry->type != T_NULL) {
@@ -364,7 +364,7 @@ void execute_entries() {
 
         if (entries.file_counter) {
             index = 0;
-            entries_array = calloc(entries.file_counter + 1, sizeof(char**));
+            entries_array = calloc(entries.file_counter + 1, sizeof(char*));
             entries_array[entries.file_counter] = NULL;
             entry = entries.array;
             while (entry && entry->type != T_NULL) {
@@ -381,7 +381,7 @@ void execute_entries() {
         break;
     case T_FILE:
         array_size = entries.file_counter + entries.arg_counter;
-        entries_array = calloc(array_size + 1, sizeof(char**));
+        entries_array = calloc(array_size + 1, sizeof(char*));
         entries_array[array_size] = NULL;
         for (size_t i = 0; i < array_size; ++i) {
             entries_array[i] = entries.array[i].string;
@@ -393,7 +393,7 @@ void execute_entries() {
         break;
     case T_DIR:
         array_size = entries.dir_counter + entries.arg_counter;
-        entries_array = calloc(array_size + 1, sizeof(char**));
+        entries_array = calloc(array_size + 1, sizeof(char*));
         entries_array[array_size] = NULL;
         for (size_t i = 0; i < array_size; ++i) {
             entries_array[i] = entries.array[i].string;
