@@ -1,0 +1,25 @@
+BasedOnStyle: LLVM
+
+AlwaysBreakTemplateDeclarations: Yes
+AlignAfterOpenBracket: Align
+AlignArrayOfStructures: Left
+AlignTrailingComments: 'true'
+AllowShortEnumsOnASingleLine: 'false'
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+BreakBeforeBraces: Attach
+BreakConstructorInitializers: BeforeColon
+# BreakBeforeBinaryOperators: All
+ColumnLimit: 120
+IncludeBlocks: Regroup
+IndentPPDirectives: AfterHash
+IndentWidth: 4
+PackConstructorInitializers: Never
+PointerAlignment: Left
+SortIncludes: CaseInsensitive 
+SpaceAfterCStyleCast: 'true'
+SpaceAroundPointerQualifiers: Both
+SpaceBeforeCaseColon: 'false'
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyBlock: 'true'
+UseTab: Never
