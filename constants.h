@@ -1,8 +1,6 @@
 #ifndef _CONSTANTS_H
 #define _CONSTANTS_H
 
-#define VERSION 1.0.2
-
 #define DEFAULT_FILE_EXEC "cat"
 #define DEFAULT_DIR_EXEC "ls"
 #define EXEC_FILE_NAME "lscat-file"

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "constants.h"
 #include "logging.h"
+
 #include <errno.h>
 #include <sched.h>
 #include <stdarg.h>
@@ -72,7 +73,7 @@ char **string_to_argv(const char * const p_string) {
 
     char **ret = calloc(spaces_count + 2, sizeof(char*));
     if (ret == NULL) {
-        log_error("malloc failed");
+        log_error("calloc failed");
         exit(-1);
     }
     ret[spaces_count + 1] = NULL;
@@ -210,6 +211,16 @@ void sanitize_and_check_config() {
         }
     }
 
+    // lscat has been called without any arguments
+    if (config.mode == T_NULL && entries.file_counter == 0 && entries.dir_counter == 0) {
+        entries.array = calloc(2, sizeof(arg_t));
+        entries.array[0].string = ".";
+        entries.array[0].type = T_DIR;
+        entries.array[1].string = NULL;
+        entries.array[1].type = T_NULL;
+        entries.dir_counter = 1;
+    }
+
     struct rlimit limit;
     int retval = getrlimit(RLIMIT_STACK, &limit);
     if (retval < 0 || limit.rlim_cur <= 0) {
@@ -344,13 +355,15 @@ void execute_entries() {
     char **entries_array;
     size_t array_size;
     size_t index;
+
     switch (config.mode) {
     case T_NULL:
+        index = 0;
+        entry = entries.array;
+
         if (entries.dir_counter) {
-            index = 0;
             entries_array = calloc(entries.dir_counter + 1, sizeof(char*));
             entries_array[entries.dir_counter] = NULL;
-            entry = entries.array;
             while (entry && entry->type != T_NULL) {
                 if (entry->type == T_DIR) {
                     entries_array[index++] = entry->string;
@@ -358,16 +371,9 @@ void execute_entries() {
                 ++entry;
             }
             child_argv = concatenate_char_arrays(config.dir_exec_path, config.dir_exec_args, entries_array);
-            free(entries_array);
-            run(child_argv);
-            free(child_argv);
-        }
-
-        if (entries.file_counter) {
-            index = 0;
+        } else if (entries.file_counter) {
             entries_array = calloc(entries.file_counter + 1, sizeof(char*));
             entries_array[entries.file_counter] = NULL;
-            entry = entries.array;
             while (entry && entry->type != T_NULL) {
                 if (entry->type == T_FILE) {
                     entries_array[index++] = entry->string;
@@ -375,9 +381,10 @@ void execute_entries() {
                 ++entry;
             }
             child_argv = concatenate_char_arrays(config.file_exec_path, config.file_exec_args, entries_array);
-            free(entries_array);
-            run(child_argv);
-            free(child_argv);
+        }
+        else {
+            log_error("This should be unreachable.\n");
+            exit(-1);
         }
         break;
     case T_FILE:
@@ -388,9 +395,6 @@ void execute_entries() {
             entries_array[i] = entries.array[i].string;
         }
         child_argv = concatenate_char_arrays(config.file_exec_path, config.file_exec_args, entries_array);
-        run(child_argv);
-        free(child_argv);
-        free(entries_array);
         break;
     case T_DIR:
         array_size = entries.dir_counter + entries.arg_counter;
@@ -400,13 +404,16 @@ void execute_entries() {
             entries_array[i] = entries.array[i].string;
         }
         child_argv = concatenate_char_arrays(config.dir_exec_path, config.dir_exec_args, entries_array);
-        run(child_argv);
-        free(child_argv);
-        free(entries_array);
         break; 
     default:
+        log_error("This should be unreachable\n");
+        exit(-1);
         break;
     }
+
+    run(child_argv);
+    free(child_argv);
+    free(entries_array);
 }
 
 int main(int argc, char *argv[]) {
